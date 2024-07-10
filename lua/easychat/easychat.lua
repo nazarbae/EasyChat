@@ -11,7 +11,7 @@ local NET_ADD_TEXT = "EASY_CHAT_ADD_TEXT"
 local PLY = FindMetaTable("Player")
 local TAG = "EasyChat"
 
-local EC_MAX_CHARS = CreateConVar("easychat_max_chars", "3000", { FCVAR_REPLICATED, SERVER and FCVAR_ARCHIVE or nil }, "Max characters per messages", 50)
+local EC_MAX_CHARS = CreateConVar("easychat_max_chars", "1024", { FCVAR_REPLICATED, SERVER and FCVAR_ARCHIVE or nil }, "Max characters per messages", 50)
 
 local color_red = Color(255, 0, 0)
 local color_gray = Color(184, 189, 209)
