@@ -534,43 +534,6 @@ end
 chathud:RegisterPart("texture", texture_part)
 
 --[[-----------------------------------------------------------------------------
-	Translate Component
-
-	Translates text from its original position to another.
-]]-------------------------------------------------------------------------------
-local translate_part = {
-	OkInNicks = false,
-	RunExpression = function() return 0, 0 end,
-	Offset = { X = 0, Y = 0 },
-	Usage = "<translate=x,y> or <translate=expression>",
-	Examples = {
-		"<translate=100,0>To the right",
-		"<translate=rand()*10,rand()*10>Im angry!"
-	}
-}
-
-function translate_part:Ctor(expr)
-	local succ, ret = compile_expression(expr)
-	if succ then
-		self.RunExpression = ret
-	end
-
-	return self
-end
-
-function translate_part:ComputeOffset()
-	local succ, x, y = pcall(self.RunExpression)
-	self.Offset = { X = succ and tonumber(x) or 0, Y = succ and tonumber(y) or 0 }
-end
-
-function translate_part:Draw(ctx)
-	self:ComputeOffset()
-	ctx:PushTextOffset(self.Offset)
-end
-
-chathud:RegisterPart("translate", translate_part)
-
---[[-----------------------------------------------------------------------------
 	Carat Color Component
 
 	Pre-hard-coded colors ready for use.

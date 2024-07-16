@@ -11,7 +11,7 @@ local NET_ADD_TEXT = "EASY_CHAT_ADD_TEXT"
 local PLY = FindMetaTable("Player")
 local TAG = "EasyChat"
 
-local EC_MAX_CHARS = CreateConVar("easychat_max_chars", "1024", { FCVAR_REPLICATED, SERVER and FCVAR_ARCHIVE or nil }, "Max characters per messages", 50)
+local EC_MAX_CHARS = CreateConVar("easychat_max_chars", "3000", { FCVAR_REPLICATED, SERVER and FCVAR_ARCHIVE or nil }, "Max characters per messages", 50)
 
 local color_red = Color(255, 0, 0)
 local color_gray = Color(184, 189, 209)
@@ -67,6 +67,8 @@ local trim_lookup = {
 	[utf8.char(0x03)] = "^C" -- END OF TEXT
 }
 
+
+
 -- control_chars are newlines, tabs, etc...
 function EasyChat.ExtendedStringTrim(str, control_chars)
 	if not str then return "" end
@@ -86,6 +88,113 @@ end
 function EasyChat.IsStringEmpty(str)
 	return #EasyChat.ExtendedStringTrim(str, true) == 0
 end
+
+
+local function get_unknown_name(ply)
+	-- NULL is "pure", its not the same as a player becoming NULL
+	-- therefore this will only work if the ply is the server console
+	if ply == NULL then return "[SERVER]" end
+
+	-- this is always going to be a player thats not been networked yet or some weird
+	-- stuff that gmod is responsible for
+	return "[UNKNOWN]"
+end
+
+EasyChat.NativeNick = EasyChat.NativeNick or PLY.Nick
+function EasyChat.GetProperNick(ply)
+	if not IsValid(ply) then return get_unknown_name(ply) end
+
+	local ply_nick = EasyChat.NativeNick(ply)
+	if not ec_markup then return ply_nick end
+	local mk = ec_markup.CachePlayer("EasyChat", ply, function()
+		return ec_markup.Parse(ply_nick, nil, true)
+	end)
+
+	return mk and mk:GetText() or ply_nick
+end
+
+
+local wrappers = {}
+local wrapper_addr
+
+local function make_nick_override_wrapper()
+	local native_nick = EasyChat.NativeNick
+	local fn_addr
+	local function wrapper(ply)
+		if not fn_addr or not wrappers[fn_addr] then return native_nick(ply) end
+
+		return EasyChat.GetProperNick(ply)
+	end
+
+	fn_addr = tostring(wrapper)
+	wrapper_addr = tostring(wrapper)
+	wrappers[wrapper_addr] = true
+
+	return wrapper
+end
+
+local function rich_nick_wrapper(ply)
+	return EasyChat.NativeNick(ply)
+end
+
+local clean_name_fns = { "Nick", "Name", "GetName", "GetNick" }
+local tagged_name_fns = { "RichNick", "RichName", "GetRichName", "GetRichNick", "NickDecorated", "NameDecorated", "GetNameDecorated", "GetNickDecorated" }
+local function check_nick_override_wrapper_status()
+	if wrapper_addr and wrapper_addr ~= tostring(PLY.Nick) then
+		wrappers[wrapper_addr] = nil
+		EasyChat.NativeNick = PLY.Nick
+
+		local new_wrapper = make_nick_override_wrapper()
+		for _, fn_name in ipairs(clean_name_fns) do
+			PLY[fn_name] = new_wrapper
+		end
+
+		for _, fn_name in ipairs(tagged_name_fns) do
+			PLY[fn_name] = rich_nick_wrapper
+		end
+	end
+
+	timer.Simple(1, check_nick_override_wrapper_status)
+end
+
+local new_wrapper = make_nick_override_wrapper()
+for _, fn_name in ipairs(clean_name_fns) do
+	PLY[fn_name] = new_wrapper
+end
+
+for _, fn_name in ipairs(tagged_name_fns) do
+	PLY[fn_name] = rich_nick_wrapper
+end
+
+PLY.RealNick = PLY.EngineNick
+PLY.RealName = PLY.EngineNick
+PLY.GetRealName = PLY.EngineNick
+
+timer.Simple(1, check_nick_override_wrapper_status)
+
+
+
+--[[
+
+
+local PlayerNameOrNick = debug.getregistry().Player
+PlayerNameOrNick.RealName = PlayerNameOrNick.Nick
+PlayerNameOrNick.Nick = function(self) if self != nil then return self:GetNWString("PlayerName", self:RealName()) else return "" end end
+PlayerNameOrNick.Name = PlayerNameOrNick.Nick
+PlayerNameOrNick.GetName = PlayerNameOrNick.Nick
+
+concommand.Add( "killyourself", function( ply, cmd, args )
+ 	ply:SetNWString("PlayerName",args[1])
+end )
+
+
+
+
+]]
+
+
+
+
 
 local load_modules, get_modules = include("easychat/autoloader.lua")
 EasyChat.GetModules = get_modules -- maybe useful for modules?
@@ -1464,18 +1573,6 @@ if CLIENT then
 			return math.fmod(counter, 4294967291) -- 2^32 - 5: Prime (and different from the prime in the loop)
 		end
 
-		function EasyChat.GetProperNick(ply)
-			if not IsValid(ply) then return "???" end
-
-			local ply_nick = ply:Nick()
-			if not ec_markup then return ply_nick end
-			local mk = ec_markup.CachePlayer("EasyChat", ply, function()
-				return ec_markup.Parse(ply_nick, nil, true)
-			end)
-
-			return mk and mk:GetText() or ply_nick
-		end
-
 		function EasyChat.PastelizeNick(nick)
 			local hue = string_hash(nick)
 			local saturation, value = hue % 3 == 0, hue % 127 == 0
@@ -1575,7 +1672,7 @@ if CLIENT then
 			global_insert_color_change(team_color.r, team_color.g, team_color.b, 255)
 			table.insert(data, team_color)
 
-			local stripped_ply_nick = EasyChat.GetProperNick(ply)
+			local stripped_ply_nick = ply:Nick()
 			if EC_PLAYER_PASTEL:GetBool() then
 				local pastel_color = EasyChat.PastelizeNick(stripped_ply_nick)
 				global_insert_color_change(pastel_color.r, pastel_color.g, pastel_color.b, 255)
@@ -1677,7 +1774,7 @@ if CLIENT then
 						local team_color = EC_PLAYER_COLOR:GetBool() and team.GetColor(arg:Team()) or color_white
 						richtext:InsertColorChange(team_color.r, team_color.g, team_color.b, 255)
 
-						local nick = EasyChat.GetProperNick(arg)
+						local nick = arg:Nick()
 						if EC_PLAYER_PASTEL:GetBool() then
 							local pastel_color = EasyChat.PastelizeNick(nick)
 							richtext:InsertColorChange(pastel_color.r, pastel_color.g, pastel_color.b, 255)
@@ -2068,7 +2165,7 @@ if CLIENT then
 			local max_perc = 0
 			local res
 			for _, ply in ipairs(player.GetAll()) do
-				local nick = EasyChat.GetProperNick(ply)
+				local nick = ply:Nick()
 				local match = nick:lower():match(last_word:lower():PatternSafe())
 				if match and not text:EndsWith(nick) then
 					local perc = #match / #nick
